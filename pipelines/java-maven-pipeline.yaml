@@ -2,6 +2,9 @@ apiVersion: tekton.dev/v1beta1
 kind: Pipeline
 metadata:
   name: ibm-java-maven
+  annotations:
+    app.openshift.io/runtime: openjdk
+    app.openshift.io/builder: maven
 spec:
   params:
     - name: git-url
@@ -10,8 +13,11 @@ spec:
       description: The git revision (branch, tag, or sha) that should be built
       default: master
     - name: scan-image
-      description: Flag indicating that an image scan should be performed
+      description: Enable the pipeline to scan the image for vulnerabilities
       default: "true"
+    - name: lint-dockerfile
+      description: Enable the pipeline to lint the Dockerfile for best practices
+      default: "true"      
   tasks:
     - name: setup
       taskRef:
@@ -23,6 +29,8 @@ spec:
           value: $(params.git-revision)
         - name: scan-image
           value: $(params.scan-image)
+        - name: lint-dockerfile
+          value: $(params.lint-dockerfile)
     - name: test
       taskRef:
         name: ibm-java-maven-test
@@ -37,11 +45,27 @@ spec:
           value: "$(tasks.setup.results.source-dir)"
         - name: app-name
           value: "$(tasks.setup.results.app-name)"
+
+    - name: dockerfile-lint
+      taskRef:
+        name: ibm-dockerfile-lint
+      runAfter:
+        - test
+      params:
+        - name: git-url
+          value: "$(tasks.setup.results.git-url)"
+        - name: git-revision
+          value: "$(tasks.setup.results.git-revision)"
+        - name: source-dir
+          value: "$(tasks.setup.results.source-dir)"
+        - name: lint-dockerfile
+          value: "$(tasks.setup.results.dockerfile-lint)"
+          
     - name: build
       taskRef:
         name: ibm-build-tag-push
       runAfter:
-        - test
+        - dockerfile-lint
       params:
         - name: git-url
           value: "$(tasks.setup.results.git-url)"
